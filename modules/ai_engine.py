@@ -61,7 +61,7 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
                 "Content-Type":  "application/json",
             },
             json={
-                "model":       "llama3-8b-8192",
+                "model":       "llama-3.1-8b-instant",
                 "messages":    messages,
                 "max_tokens":  300,
                 "temperature": 0.8,
