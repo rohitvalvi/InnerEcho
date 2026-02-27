@@ -54,7 +54,6 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
     messages.append({"role": "user", "content": user_message})
 
     try:
-        # Groq — free, fast, reliable, no endpoint issues
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={
@@ -75,11 +74,11 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
     except Exception as e:
         st.error(f"AI response error: {e}")
         fallbacks = {
-            "sadness":  "I'm so sorry you're feeling this way. I'm here to listen — would you like to talk more about what's on your mind?",
+            "sadness":  "I'm so sorry you're feeling this way. I'm here to listen — would you like to talk more?",
             "joy":      "That sounds wonderful! I'm genuinely happy for you. What made this moment special?",
             "fear":     "It's completely okay to feel anxious. Take a slow, deep breath — I'm right here with you.",
-            "anger":    "It sounds like you're really frustrated, and that's completely valid. What's been weighing on you?",
-            "love":     "That's such a heartwarming feeling! Thank you for sharing that with me.",
+            "anger":    "It sounds like you're really frustrated, and that's completely valid. What's been on your mind?",
+            "love":     "That's such a heartwarming feeling. Thank you for sharing that with me.",
             "surprise": "Wow, that sounds unexpected! How are you processing everything?",
             "neutral":  "Thank you for sharing that with me. I'm here — tell me more about how you're feeling.",
         }
