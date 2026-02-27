@@ -3,7 +3,6 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 
 EMOTION_MODEL = "bhadresh-savani/distilbert-base-uncased-emotion"
-CHAT_MODEL    = "mistralai/Mistral-7B-Instruct-v0.3"
 
 CRISIS_KEYWORDS = [
     "suicide", "suicidal", "kill myself", "end my life", "hurt myself",
@@ -17,10 +16,9 @@ def check_crisis(text: str) -> bool:
 
 def get_emotion(text: str) -> tuple[str, float]:
     try:
-        headers  = {"Authorization": f"Bearer {st.secrets['hf_token']}"}
         response = requests.post(
             f"https://router.huggingface.co/hf-inference/models/{EMOTION_MODEL}",
-            headers=headers,
+            headers={"Authorization": f"Bearer {st.secrets['hf_token']}"},
             json={"inputs": text},
             timeout=10,
         )
@@ -55,61 +53,50 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
 
     messages.append({"role": "user", "content": user_message})
 
-    # Try multiple router providers in order until one works
-    endpoints = [
-        "https://router.huggingface.co/hf-inference/v1/chat/completions",
-        "https://router.huggingface.co/together/v1/chat/completions",
-        "https://router.huggingface.co/fireworks-ai/v1/chat/completions",
-    ]
+    try:
+        # Groq — free, fast, reliable, no endpoint issues
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {st.secrets['groq_token']}",
+                "Content-Type":  "application/json",
+            },
+            json={
+                "model":       "llama3-8b-8192",
+                "messages":    messages,
+                "max_tokens":  300,
+                "temperature": 0.8,
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
 
-    headers = {
-        "Authorization": f"Bearer {st.secrets['hf_token']}",
-        "Content-Type":  "application/json",
-    }
-    payload = {
-        "model":       CHAT_MODEL,
-        "messages":    messages,
-        "max_tokens":  300,
-        "temperature": 0.8,
-    }
-
-    last_error = None
-    for endpoint in endpoints:
-        try:
-            response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
-            response.raise_for_status()
-            data  = response.json()
-            reply = data["choices"][0]["message"]["content"].strip()
-            return reply
-        except Exception as e:
-            last_error = e
-            continue
-
-    # All endpoints failed — show error and return fallback
-    st.error(f"AI response error: {last_error}")
-    fallbacks = {
-        "sadness":  "I'm so sorry you're feeling this way. I'm here to listen — would you like to talk more?",
-        "joy":      "That sounds wonderful! I'm genuinely happy for you. What made this moment special?",
-        "fear":     "It's completely okay to feel anxious. Take a slow, deep breath — I'm right here with you.",
-        "anger":    "It sounds like you're really frustrated, and that's completely valid. What's been on your mind?",
-        "love":     "That's such a heartwarming feeling. Thank you for sharing that with me.",
-        "surprise": "Wow, that sounds unexpected! How are you processing everything?",
-        "neutral":  "Thank you for sharing that with me. I'm here — tell me more about how you're feeling.",
-    }
-    return fallbacks.get(emotion.lower(), "Thank you for sharing that with me. I'm here for you.")
+    except Exception as e:
+        st.error(f"AI response error: {e}")
+        fallbacks = {
+            "sadness":  "I'm so sorry you're feeling this way. I'm here to listen — would you like to talk more about what's on your mind?",
+            "joy":      "That sounds wonderful! I'm genuinely happy for you. What made this moment special?",
+            "fear":     "It's completely okay to feel anxious. Take a slow, deep breath — I'm right here with you.",
+            "anger":    "It sounds like you're really frustrated, and that's completely valid. What's been weighing on you?",
+            "love":     "That's such a heartwarming feeling! Thank you for sharing that with me.",
+            "surprise": "Wow, that sounds unexpected! How are you processing everything?",
+            "neutral":  "Thank you for sharing that with me. I'm here — tell me more about how you're feeling.",
+        }
+        return fallbacks.get(emotion.lower(), "Thank you for sharing that with me. I'm here for you.")
 
 
 def update_streak() -> None:
     today        = date.today().isoformat()
-    last_checkin = st.session_state.get("last_checkin_date")
+    last_checkin = st.session_state.get("last_checkin_date", None)
     streak       = st.session_state.get("streak", 0)
 
     if last_checkin == today:
         return
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
-    if last_checkin == yesterday:
-        streak += 1
+    if last_checkin:
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        streak = streak + 1 if last_checkin == yesterday else 1
     else:
         streak = 1
 
@@ -143,3 +130,5 @@ def save_mood_entry(emotion: str, score: float) -> None:
     existing.append(new_entry)
     with open(MOOD_FILE, "w") as f:
         json.dump(existing, f, indent=2)
+
+    update_streak()
