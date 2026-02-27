@@ -12,7 +12,7 @@ CRISIS_KEYWORDS = [
 
 @st.cache_resource
 def _get_client() -> InferenceClient:
-    return InferenceClient(api_key=st.secrets["hf_token"])
+    return InferenceClient(token=st.secrets["hf_token"])
 
 
 def check_crisis(text: str) -> bool:
