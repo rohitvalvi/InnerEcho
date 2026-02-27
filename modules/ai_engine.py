@@ -3,7 +3,7 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 
 EMOTION_MODEL = "bhadresh-savani/distilbert-base-uncased-emotion"
-CHAT_MODEL    = "meta-llama/Meta-Llama-3-8B-Instruct"
+CHAT_MODEL    = "mistralai/Mistral-7B-Instruct-v0.3"   # Free, no gating, works instantly
 
 CRISIS_KEYWORDS = [
     "suicide", "suicidal", "kill myself", "end my life", "hurt myself",
@@ -25,8 +25,9 @@ def get_emotion(text: str) -> tuple[str, float]:
         results = client.text_classification(text, model=EMOTION_MODEL)
         top     = sorted(results, key=lambda x: x["score"], reverse=True)[0]
         return top["label"], top["score"]
-    except Exception:
-        return "neutral", 0.0
+    except Exception as e:
+        st.warning(f"Emotion detection unavailable: {e}")
+        return "neutral", 0.5
 
 
 def get_ai_response(user_message: str, emotion: str, chat_history: list | None = None) -> str:
@@ -52,9 +53,23 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
 
     try:
         client   = _get_client()
-        response = client.chat_completion(messages=messages, model=CHAT_MODEL, max_tokens=200, temperature=0.75)
-        return response.choices[0].message.content.strip()
-    except Exception:
+        response = client.chat_completion(
+            messages=messages,
+            model=CHAT_MODEL,
+            max_tokens=300,
+            temperature=0.8,
+        )
+        reply = response.choices[0].message.content.strip()
+
+        # Strip any accidental system prompt leakage
+        if reply.lower().startswith("you are innerecho"):
+            reply = reply.split("\n", 1)[-1].strip()
+
+        return reply
+
+    except Exception as e:
+        # Show the real error so you can debug it
+        st.error(f"AI response error: {e}")
         fallbacks = {
             "sadness":  "I'm so sorry you're feeling this way. I'm here to listen — would you like to talk more?",
             "joy":      "That sounds wonderful! I'm genuinely happy for you. What made this moment special?",
@@ -64,7 +79,7 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
             "surprise": "Wow, that sounds unexpected! How are you processing everything?",
             "neutral":  "Thank you for sharing that with me. I'm here — tell me more about how you're feeling.",
         }
-        return fallbacks.get(emotion, "Thank you for sharing that with me. I'm here for you.")
+        return fallbacks.get(emotion.lower(), "Thank you for sharing that with me. I'm here for you.")
 
 
 def update_streak() -> None:
