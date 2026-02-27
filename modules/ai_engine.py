@@ -3,7 +3,7 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 
 EMOTION_MODEL = "bhadresh-savani/distilbert-base-uncased-emotion"
-CHAT_MODEL    = "mistralai/Mistral-7B-Instruct-v0.3"   # Free, no gating, works instantly
+CHAT_MODEL    = "mistralai/Mistral-7B-Instruct-v0.3"
 
 CRISIS_KEYWORDS = [
     "suicide", "suicidal", "kill myself", "end my life", "hurt myself",
@@ -12,7 +12,11 @@ CRISIS_KEYWORDS = [
 
 @st.cache_resource
 def _get_client() -> InferenceClient:
-    return InferenceClient(token=st.secrets["hf_token"])
+    # New HuggingFace router endpoint (api-inference.huggingface.co is discontinued)
+    return InferenceClient(
+        token=st.secrets["hf_token"],
+        base_url="https://router.huggingface.co"
+    )
 
 
 def check_crisis(text: str) -> bool:
@@ -21,12 +25,24 @@ def check_crisis(text: str) -> bool:
 
 def get_emotion(text: str) -> tuple[str, float]:
     try:
-        client  = _get_client()
-        results = client.text_classification(text, model=EMOTION_MODEL)
-        top     = sorted(results, key=lambda x: x["score"], reverse=True)[0]
+        import requests
+        # Call new router endpoint directly for text classification
+        headers = {"Authorization": f"Bearer {st.secrets['hf_token']}"}
+        payload = {"inputs": text}
+        response = requests.post(
+            f"https://router.huggingface.co/hf-inference/models/{EMOTION_MODEL}",
+            headers=headers,
+            json=payload,
+            timeout=10,
+        )
+        response.raise_for_status()
+        results = response.json()
+        # Result is [[{label, score}, ...]]
+        if isinstance(results, list) and isinstance(results[0], list):
+            results = results[0]
+        top = sorted(results, key=lambda x: x["score"], reverse=True)[0]
         return top["label"], top["score"]
     except Exception as e:
-        st.warning(f"Emotion detection unavailable: {e}")
         return "neutral", 0.5
 
 
@@ -52,23 +68,29 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
     messages.append({"role": "user", "content": user_message})
 
     try:
-        client   = _get_client()
-        response = client.chat_completion(
-            messages=messages,
-            model=CHAT_MODEL,
-            max_tokens=300,
-            temperature=0.8,
+        import requests
+        headers = {
+            "Authorization": f"Bearer {st.secrets['hf_token']}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": CHAT_MODEL,
+            "messages": messages,
+            "max_tokens": 300,
+            "temperature": 0.8,
+        }
+        response = requests.post(
+            "https://router.huggingface.co/novita/v3/openai/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30,
         )
-        reply = response.choices[0].message.content.strip()
-
-        # Strip any accidental system prompt leakage
-        if reply.lower().startswith("you are innerecho"):
-            reply = reply.split("\n", 1)[-1].strip()
-
+        response.raise_for_status()
+        data = response.json()
+        reply = data["choices"][0]["message"]["content"].strip()
         return reply
 
     except Exception as e:
-        # Show the real error so you can debug it
         st.error(f"AI response error: {e}")
         fallbacks = {
             "sadness":  "I'm so sorry you're feeling this way. I'm here to listen — would you like to talk more?",
