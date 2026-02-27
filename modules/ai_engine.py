@@ -1,4 +1,4 @@
-from huggingface_hub import InferenceClient
+import requests
 import streamlit as st
 from datetime import datetime, date, timedelta
 
@@ -10,14 +10,6 @@ CRISIS_KEYWORDS = [
     "self harm", "self-harm", "end it all", "want to die", "no reason to live",
 ]
 
-@st.cache_resource
-def _get_client() -> InferenceClient:
-    # New HuggingFace router endpoint (api-inference.huggingface.co is discontinued)
-    return InferenceClient(
-        token=st.secrets["hf_token"],
-        base_url="https://router.huggingface.co"
-    )
-
 
 def check_crisis(text: str) -> bool:
     return any(keyword in text.lower() for keyword in CRISIS_KEYWORDS)
@@ -25,24 +17,20 @@ def check_crisis(text: str) -> bool:
 
 def get_emotion(text: str) -> tuple[str, float]:
     try:
-        import requests
-        # Call new router endpoint directly for text classification
-        headers = {"Authorization": f"Bearer {st.secrets['hf_token']}"}
-        payload = {"inputs": text}
+        headers  = {"Authorization": f"Bearer {st.secrets['hf_token']}"}
         response = requests.post(
             f"https://router.huggingface.co/hf-inference/models/{EMOTION_MODEL}",
             headers=headers,
-            json=payload,
+            json={"inputs": text},
             timeout=10,
         )
         response.raise_for_status()
         results = response.json()
-        # Result is [[{label, score}, ...]]
         if isinstance(results, list) and isinstance(results[0], list):
             results = results[0]
         top = sorted(results, key=lambda x: x["score"], reverse=True)[0]
         return top["label"], top["score"]
-    except Exception as e:
+    except Exception:
         return "neutral", 0.5
 
 
@@ -67,41 +55,48 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
 
     messages.append({"role": "user", "content": user_message})
 
-    try:
-        import requests
-        headers = {
-            "Authorization": f"Bearer {st.secrets['hf_token']}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": CHAT_MODEL,
-            "messages": messages,
-            "max_tokens": 300,
-            "temperature": 0.8,
-        }
-        response = requests.post(
-            "https://router.huggingface.co/novita/v3/openai/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-        reply = data["choices"][0]["message"]["content"].strip()
-        return reply
+    # Try multiple router providers in order until one works
+    endpoints = [
+        "https://router.huggingface.co/hf-inference/v1/chat/completions",
+        "https://router.huggingface.co/together/v1/chat/completions",
+        "https://router.huggingface.co/fireworks-ai/v1/chat/completions",
+    ]
 
-    except Exception as e:
-        st.error(f"AI response error: {e}")
-        fallbacks = {
-            "sadness":  "I'm so sorry you're feeling this way. I'm here to listen — would you like to talk more?",
-            "joy":      "That sounds wonderful! I'm genuinely happy for you. What made this moment special?",
-            "fear":     "It's completely okay to feel anxious. Take a slow, deep breath — I'm right here with you.",
-            "anger":    "It sounds like you're really frustrated, and that's completely valid. What's been on your mind?",
-            "love":     "That's such a heartwarming feeling. Thank you for sharing that with me.",
-            "surprise": "Wow, that sounds unexpected! How are you processing everything?",
-            "neutral":  "Thank you for sharing that with me. I'm here — tell me more about how you're feeling.",
-        }
-        return fallbacks.get(emotion.lower(), "Thank you for sharing that with me. I'm here for you.")
+    headers = {
+        "Authorization": f"Bearer {st.secrets['hf_token']}",
+        "Content-Type":  "application/json",
+    }
+    payload = {
+        "model":       CHAT_MODEL,
+        "messages":    messages,
+        "max_tokens":  300,
+        "temperature": 0.8,
+    }
+
+    last_error = None
+    for endpoint in endpoints:
+        try:
+            response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            data  = response.json()
+            reply = data["choices"][0]["message"]["content"].strip()
+            return reply
+        except Exception as e:
+            last_error = e
+            continue
+
+    # All endpoints failed — show error and return fallback
+    st.error(f"AI response error: {last_error}")
+    fallbacks = {
+        "sadness":  "I'm so sorry you're feeling this way. I'm here to listen — would you like to talk more?",
+        "joy":      "That sounds wonderful! I'm genuinely happy for you. What made this moment special?",
+        "fear":     "It's completely okay to feel anxious. Take a slow, deep breath — I'm right here with you.",
+        "anger":    "It sounds like you're really frustrated, and that's completely valid. What's been on your mind?",
+        "love":     "That's such a heartwarming feeling. Thank you for sharing that with me.",
+        "surprise": "Wow, that sounds unexpected! How are you processing everything?",
+        "neutral":  "Thank you for sharing that with me. I'm here — tell me more about how you're feeling.",
+    }
+    return fallbacks.get(emotion.lower(), "Thank you for sharing that with me. I'm here for you.")
 
 
 def update_streak() -> None:
@@ -123,8 +118,7 @@ def update_streak() -> None:
 
 
 def save_mood_entry(emotion: str, score: float) -> None:
-    import json
-    import os
+    import json, os
 
     MOOD_FILE = "data/mood_log.json"
     os.makedirs("data", exist_ok=True)
