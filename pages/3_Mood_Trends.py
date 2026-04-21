@@ -22,15 +22,21 @@ MOOD_COLORS = {
     "Neutral":  "#90EE90",
 }
 
-DEMO_DATA = [
-    {"Date": "2026-02-19 09:00", "Score": 0.55, "Mood": "Neutral"},
-    {"Date": "2026-02-20 14:30", "Score": 0.82, "Mood": "Joy"},
-    {"Date": "2026-02-21 11:00", "Score": 0.35, "Mood": "Sadness"},
-    {"Date": "2026-02-22 16:00", "Score": 0.60, "Mood": "Neutral"},
-    {"Date": "2026-02-23 10:00", "Score": 0.91, "Mood": "Joy"},
-    {"Date": "2026-02-24 20:00", "Score": 0.45, "Mood": "Fear"},
-    {"Date": "2026-02-25 09:30", "Score": 0.78, "Mood": "Joy"},
-]
+WELLBEING_BASE = {
+    "joy": 0.90,
+    "love": 0.85,
+    "surprise": 0.65,
+    "neutral": 0.55,
+    "anger": 0.30,
+    "sadness": 0.25,
+    "fear": 0.20,
+}
+
+
+def emotion_to_wellbeing(emotion: str, confidence: float) -> float:
+    base = WELLBEING_BASE.get(str(emotion).lower(), 0.50)
+    confidence = max(0.0, min(1.0, float(confidence)))
+    return round(0.5 + (base - 0.5) * confidence, 2)
 
 @st.cache_data(ttl=1)
 def _read_mood_file() -> list:
@@ -62,34 +68,50 @@ file_data = load_mood_file()
 
 if st.session_state.mood_cleared:
     st.session_state.mood_data = []
-    using_demo = False
 elif file_data:
     st.session_state.mood_data    = file_data
     st.session_state.mood_cleared = False
-    using_demo = False
 elif "mood_data" in st.session_state and len(st.session_state.mood_data) > 0:
     save_mood_file(st.session_state.mood_data)
     st.session_state.mood_cleared = False
-    using_demo = False
 else:
-    st.session_state.mood_data = DEMO_DATA
-    using_demo = True
+    st.session_state.mood_data = []
 
 st.header("Your Emotional Journey")
 st.caption("Visualize your mood patterns over time.")
 
 if len(st.session_state.mood_data) == 0:
-    st.success("All mood data has been cleared.")
+    st.info("No mood data yet.")
     st.info("Start chatting with your Companion to build your mood history.")
-    if st.button("Show Demo Data Again"):
-        st.session_state.mood_cleared = False
-        st.rerun()
     st.stop()
 
-if using_demo:
-    st.info("Showing sample data. Chat with your Companion to generate your real mood data.")
+normalized = []
+needs_save = False
+for entry in st.session_state.mood_data:
+    mood = str(entry.get("Mood", "Neutral")).capitalize()
+    date_val = entry.get("Date")
 
-df = pd.DataFrame(st.session_state.mood_data)
+    if "Confidence" in entry:
+        confidence = max(0.0, min(1.0, float(entry.get("Confidence", 0.5))))
+        score = max(0.0, min(1.0, float(entry.get("Score", emotion_to_wellbeing(mood, confidence)))))
+    else:
+        # Legacy records used Score as model confidence. Convert to well-being score.
+        confidence = max(0.0, min(1.0, float(entry.get("Score", 0.5))))
+        score = emotion_to_wellbeing(mood, confidence)
+        needs_save = True
+
+    normalized.append({
+        "Date": date_val,
+        "Mood": mood,
+        "Score": round(score, 2),
+        "Confidence": round(confidence, 2),
+    })
+
+if needs_save:
+    st.session_state.mood_data = normalized
+    save_mood_file(normalized)
+
+df = pd.DataFrame(normalized)
 df["Date"] = pd.to_datetime(df["Date"])
 df = df.sort_values("Date").reset_index(drop=True)
 
