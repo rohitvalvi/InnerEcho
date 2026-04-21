@@ -61,19 +61,12 @@ def delete_mood_file() -> None:
         os.remove(MOOD_FILE)
     _read_mood_file.clear()
 
-if "mood_cleared" not in st.session_state:
-    st.session_state.mood_cleared = False
-
 file_data = load_mood_file()
 
-if st.session_state.mood_cleared:
-    st.session_state.mood_data = []
-elif file_data:
+if file_data:
     st.session_state.mood_data    = file_data
-    st.session_state.mood_cleared = False
 elif "mood_data" in st.session_state and len(st.session_state.mood_data) > 0:
     save_mood_file(st.session_state.mood_data)
-    st.session_state.mood_cleared = False
 else:
     st.session_state.mood_data = []
 
@@ -217,7 +210,6 @@ st.divider()
 col_clr, _ = st.columns([1, 4])
 with col_clr:
     if st.button("Clear All Mood Data", use_container_width=True, type="primary"):
-        st.session_state.mood_cleared = True
         st.session_state.mood_data    = []
         delete_mood_file()
         st.rerun()
