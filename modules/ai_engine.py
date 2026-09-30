@@ -3,6 +3,7 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 
 EMOTION_MODEL = "bhadresh-savani/distilbert-base-uncased-emotion"
+GROQ_MODEL = "qwen/qwen3.8-27b"
 
 CRISIS_KEYWORDS = [
     "suicide", "suicidal", "kill myself", "end my life", "hurt myself",
@@ -76,7 +77,7 @@ def _emotion_from_groq(text: str) -> tuple[str, float] | None:
             "Content-Type": "application/json",
         },
         json={
-            "model": "llama-3.1-8b-instant",
+            "model": GROQ_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0,
             "max_tokens": 80,
@@ -157,7 +158,7 @@ def get_ai_response(user_message: str, emotion: str, chat_history: list | None =
                 "Content-Type":  "application/json",
             },
             json={
-                "model":       "llama-3.1-8b-instant",
+                "model":       GROQ_MODEL,
                 "messages":    messages,
                 "max_tokens":  300,
                 "temperature": 0.8,
